@@ -1,0 +1,54 @@
+name: Build & Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: NSZKit-Tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode-Version
+        run: xcodebuild -version && swift --version
+      - name: Tests (NSZ → NSP Round-Trip)
+        working-directory: Packages/NSZKit
+        run: swift test
+
+  build:
+    name: iOS-App (unsignierte IPA)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode-Version
+        run: xcodebuild -version
+      - name: App bauen
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project NSPZ.xcodeproj \
+            -scheme NSPZ \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee build.log | grep -E "error:|warning: .*NSPZ|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: IPA packen
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/NSPZ.app Payload/
+          zip -qry NSPZ.ipa Payload
+          ls -lh NSPZ.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NSPZ-unsigned-ipa
+          path: NSPZ.ipa
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: build.log
