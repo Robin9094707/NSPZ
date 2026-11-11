@@ -5,12 +5,20 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: NSZKit-Tests
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Neuestes Xcode 26 wählen
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
       - name: Xcode-Version
         run: xcodebuild -version && swift --version
       - name: Tests (NSZ → NSP Round-Trip)
@@ -19,9 +27,13 @@ jobs:
 
   build:
     name: iOS-App (unsignierte IPA)
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Neuestes Xcode 26 wählen
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
       - name: Xcode-Version
         run: xcodebuild -version
       - name: App bauen
