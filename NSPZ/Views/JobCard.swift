@@ -56,7 +56,6 @@ struct JobCard: View {
                         }
                     }
                 }
-                .scrollClipDisabled()
             }
             Spacer(minLength: 0)
             Button {

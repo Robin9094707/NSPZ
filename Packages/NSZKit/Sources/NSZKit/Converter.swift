@@ -242,6 +242,32 @@ final class NCAEmitter {
         self.context = context
     }
 
+    /// Index der ersten Sektion mit `offset > position` (Binärsuche, Sektionen sind sortiert).
+    private func firstSection(startingAfter position: UInt64) -> Int? {
+        var low = 0, high = sections.count
+        while low < high {
+            let mid = (low + high) / 2
+            if sections[mid].offset <= position { low = mid + 1 } else { high = mid }
+        }
+        return low < sections.count ? low : nil
+    }
+
+    private func sectionIndex(containing position: UInt64) -> Int? {
+        if cipherSection >= 0, cipherSection < sections.count,
+           position >= sections[cipherSection].offset, position < sections[cipherSection].end {
+            return cipherSection
+        }
+        let after = firstSection(startingAfter: position) ?? sections.count
+        // Kandidat ist die letzte Sektion, die bei oder vor `position` beginnt.
+        var i = after - 1
+        while i >= 0 {
+            if position < sections[i].end { return i }
+            if sections[i].size > 0 { break }
+            i -= 1
+        }
+        return nil
+    }
+
     func emitHeader(_ ptr: UnsafeMutableRawPointer, count: Int) throws {
         hasher?.update(ptr, count: count)
         try out.write(ptr, count: count)
@@ -254,7 +280,7 @@ final class NCAEmitter {
         while done < count {
             let p = position + UInt64(done)
             let remaining = UInt64(count - done)
-            if let index = sections.firstIndex(where: { p >= $0.offset && p < $0.end }) {
+            if let index = sectionIndex(containing: p) {
                 let section = sections[index]
                 let n = Int(min(remaining, section.end - p))
                 if section.isEncrypted {
@@ -267,7 +293,7 @@ final class NCAEmitter {
                 }
                 done += n
             } else {
-                let next = sections.lazy.map(\.offset).filter { $0 > p }.min() ?? UInt64.max
+                let next = firstSection(startingAfter: p).map { sections[$0].offset } ?? UInt64.max
                 done += Int(min(remaining, next - p))
             }
         }

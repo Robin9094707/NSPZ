@@ -46,7 +46,10 @@ struct NCZLayout: Sendable {
         let sectHead = try file.readData(count: 16, at: base + nczUncompressableHeaderSize)
         guard sectHead.prefix(8) == Data("NCZSECTN".utf8) else { throw NSZError.notNCZ(entry.name) }
         let count = sectHead.le(UInt64.self, at: 8)
-        guard count > 0, count <= 64 else { throw NSZError.invalidHeader("\(entry.name): \(count) Sektionen") }
+        // Update-NCAs (BKTR) werden von nsz in sehr viele Sektionen zerlegt – nur gegen die Dateigröße prüfen.
+        guard count > 0, count <= (entry.size - nczUncompressableHeaderSize - 16) / 0x40 else {
+            throw NSZError.invalidHeader("\(entry.name): \(count) Sektionen")
+        }
 
         var cursor = nczUncompressableHeaderSize + 16
         let raw = try file.readData(count: Int(count) * 0x40, at: base + cursor)

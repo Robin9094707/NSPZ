@@ -180,6 +180,34 @@ final class NSZKitTests: XCTestCase {
     func testSectionStartingInsideHeader() throws { try roundTrip(blockExponent: nil, firstOffset: 0xC00) }
     func testBlockSectionStartingInsideHeader() throws { try roundTrip(blockExponent: 16, firstOffset: 0xC00) }
 
+    /// Updates (BKTR) haben oft über tausend Sektionen mit jeweils eigenem Zähler.
+    func testUpdateWithManySections() throws {
+        var s: UInt64 = 77
+        var sections: [FakeSection] = []
+        var offset: UInt64 = 0x4000
+        let key = random(16, seed: &s)
+        for i in 0..<1500 {
+            let size = UInt64(0x200 * (1 + i % 7))
+            let counter = random(8, seed: &s) + [UInt8](repeating: 0, count: 8)
+            sections.append(FakeSection(offset: offset, size: size, cryptoType: i % 5 == 0 ? 1 : 4,
+                                        key: key, counter: counter))
+            offset += size
+        }
+        for exponent: UInt8? in [nil, 14] {
+            let nca = makeNCA(sections: sections, blockExponent: exponent, seed: 7)
+            let name = String(sha256Hex(nca.original).prefix(32))
+            let nsz = workDir.appendingPathComponent("update.nsz")
+            try writePFS0([(name + ".ncz", nca.ncz)], to: nsz)
+            let output = workDir.appendingPathComponent("update.nsp")
+            let report = try NSZConverter.convert(input: nsz, output: output)
+            XCTAssertEqual(report.verifiedCount, 1)
+            let expected = workDir.appendingPathComponent("update-expected.nsp")
+            try writePFS0([(name + ".nca", nca.original)], to: expected)
+            XCTAssertEqual(try Data(contentsOf: output), try Data(contentsOf: expected))
+            try FileManager.default.removeItem(at: output)
+        }
+    }
+
     func testUnalignedCTROffset() throws {
         var s: UInt64 = 5
         let key = random(16, seed: &s), nonce = random(16, seed: &s)
