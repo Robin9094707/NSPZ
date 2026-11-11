@@ -31,15 +31,17 @@ struct ConvertView: View {
                         !queue.jobs.contains { $0.sourceURL.standardizedFileURL == item.url.standardizedFileURL }
                     }
                     if !pending.isEmpty {
-                        sectionHeader("In NSPZ gespeichert", trailing: nil, action: {})
+                        sectionHeader("Im App-Ordner", trailing: nil, action: {})
                         VStack(spacing: 10) {
                             ForEach(pending) { item in
-                                StoredNSZRow(item: item) {
+                                StoredNSZRow(item: item, converted: queue.wasConverted(item)) {
                                     withAnimation(.bouncy) { queue.add(urls: [item.url], securityScoped: false) }
                                 }
                             }
                         }
                     }
+
+                    DropFolderCard()
 
                     if queue.jobs.isEmpty {
                         HowItWorksCard()
@@ -71,11 +73,15 @@ struct ConvertView: View {
                     .buttonStyle(.glassProminent)
                 }
             }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.nsz, .data],
+            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item],
                           allowsMultipleSelection: true) { result in
                 switch result {
                 case let .success(urls):
-                    withAnimation(.bouncy) { queue.add(urls: urls) }
+                    let valid = urls.filter { $0.pathExtension.lowercased() != "nsp" }
+                    if valid.count < urls.count {
+                        importError = "NSP-Dateien sind bereits entpackt und müssen nicht konvertiert werden."
+                    }
+                    withAnimation(.bouncy) { queue.add(urls: valid) }
                 case let .failure(error):
                     importError = error.localizedDescription
                 }
@@ -174,6 +180,7 @@ private struct HeroCard: View {
 
 private struct StoredNSZRow: View {
     let item: LibraryItem
+    var converted = false
     let onAdd: () -> Void
 
     var body: some View {
@@ -182,13 +189,61 @@ private struct StoredNSZRow: View {
                 KindTile(kind: item.metadata.kind, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.metadata.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(Format.size(item.size)).font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(Format.size(item.size))
+                        if !item.isStable {
+                            Text("· wird noch kopiert …").foregroundStyle(Theme.azure)
+                        } else if converted {
+                            Text("· bereits konvertiert").foregroundStyle(Theme.mint)
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Button("Hinzufügen", systemImage: "plus", action: onAdd)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
+                if item.isStable {
+                    Button(converted ? "Erneut konvertieren" : "Hinzufügen",
+                           systemImage: converted ? "arrow.clockwise" : "plus", action: onAdd)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                } else {
+                    ProgressView()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - App-Ordner
+
+private struct DropFolderCard: View {
+    @Environment(LibraryStore.self) private var library
+    @AppStorage(SettingsKey.watchFolder) private var watchFolder = true
+
+    var body: some View {
+        GlassCard(cornerRadius: 28, tint: Theme.mint) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "folder.fill.badge.plus")
+                        .font(.title2)
+                        .foregroundStyle(Theme.mint)
+                        .symbolEffect(.pulse, isActive: watchFolder)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Oder: in den App-Ordner legen").font(.headline)
+                        Text(watchFolder ? "Wird automatisch erkannt" : "Automatische Erkennung ist aus")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text("Kopiere deine NSZ in der Dateien-App (oder per Finder/USB vom Computer) nach **Auf meinem iPhone › NSPZ › \(LibraryStore.dropFolderName)**. Sobald die Kopie fertig ist, erscheint sie hier\(watchFolder ? " und wird automatisch in die Warteschlange gelegt" : "").")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button {
+                    FilesApp.reveal(library.dropFolder)
+                } label: {
+                    Label("Ordner in Dateien öffnen", systemImage: "arrow.up.forward.app")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glass)
             }
         }
     }

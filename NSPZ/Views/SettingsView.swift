@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.deleteSource) private var deleteSource = false
     @AppStorage(SettingsKey.autoStart) private var autoStart = false
     @AppStorage(SettingsKey.threads) private var threads = 0
+    @AppStorage(SettingsKey.watchFolder) private var watchFolder = true
 
     private let cores = ProcessInfo.processInfo.activeProcessorCount
 
@@ -21,6 +22,14 @@ struct SettingsView: View {
                                 Text("SHA-256 jeder NCA mit dem Dateinamen abgleichen").font(.caption).foregroundStyle(.secondary)
                             }
                         } icon: { Image(systemName: "checkmark.shield.fill").foregroundStyle(Theme.mint) }
+                    }
+                    Toggle(isOn: $watchFolder) {
+                        Label {
+                            VStack(alignment: .leading) {
+                                Text("App-Ordner überwachen")
+                                Text("NSZ in „Auf meinem iPhone › NSPZ“ automatisch übernehmen").font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: { Image(systemName: "folder.fill.badge.plus").foregroundStyle(Theme.violet) }
                     }
                     Toggle(isOn: $autoStart) {
                         Label {

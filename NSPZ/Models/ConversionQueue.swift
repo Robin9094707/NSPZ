@@ -10,6 +10,8 @@ enum SettingsKey {
     static let deleteSource = "deleteSourceAfterSuccess"
     static let threads = "threadCount"
     static let autoStart = "autoStart"
+    static let watchFolder = "watchAppFolder"
+    static let convertedSources = "convertedSources"
 }
 
 /// Warteschlange: Dateien werden nacheinander konvertiert (jede Datei nutzt intern alle Kerne).
@@ -32,7 +34,34 @@ final class ConversionQueue {
             SettingsKey.deleteSource: false,
             SettingsKey.threads: 0,
             SettingsKey.autoStart: false,
+            SettingsKey.watchFolder: true,
         ])
+        library.onScan = { [weak self] in self?.importFromAppFolder() }
+        importFromAppFolder()
+    }
+
+    /// Quelldateien, die der Nutzer entfernt hat – werden nicht erneut automatisch übernommen.
+    @ObservationIgnored private var dismissed: Set<URL> = []
+
+    private var convertedSources: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: SettingsKey.convertedSources) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: SettingsKey.convertedSources) }
+    }
+
+    func wasConverted(_ item: LibraryItem) -> Bool {
+        item.alreadyConverted || convertedSources.contains(item.url.path)
+    }
+
+    /// Übernimmt NSZ-Dateien, die per Dateien-App/Finder in den App-Ordner gelegt wurden.
+    func importFromAppFolder() {
+        guard UserDefaults.standard.bool(forKey: SettingsKey.watchFolder) else { return }
+        let known = Set(jobs.map { $0.sourceURL.standardizedFileURL })
+        let converted = convertedSources
+        for item in library.storedNSZ where item.isStable && !item.alreadyConverted {
+            let url = item.url.standardizedFileURL
+            guard !known.contains(url), !dismissed.contains(url), !converted.contains(url.path) else { continue }
+            add(urls: [url], securityScoped: false)
+        }
     }
 
     var activeJob: ConversionJob? { jobs.first { $0.state == .converting } }
@@ -52,6 +81,7 @@ final class ConversionQueue {
 
     func add(urls: [URL], securityScoped: Bool = true) {
         for url in urls {
+            dismissed.remove(url.standardizedFileURL)
             if jobs.contains(where: { $0.sourceURL == url && !$0.isFinished }) { continue }
             let owns = securityScoped && url.startAccessingSecurityScopedResource()
             let job = ConversionJob(sourceURL: url, ownsSecurityScope: owns)
@@ -107,11 +137,15 @@ final class ConversionQueue {
     func remove(_ job: ConversionJob) {
         if job.state == .converting { job.cancelFlag.set(); return }
         job.releaseSecurityScope()
+        dismissed.insert(job.sourceURL.standardizedFileURL)
         jobs.removeAll { $0.id == job.id }
     }
 
     func clearFinished() {
-        for job in jobs where job.isFinished { job.releaseSecurityScope() }
+        for job in jobs where job.isFinished {
+            job.releaseSecurityScope()
+            dismissed.insert(job.sourceURL.standardizedFileURL)
+        }
         jobs.removeAll { $0.isFinished }
     }
 
@@ -188,6 +222,7 @@ final class ConversionQueue {
             job.totalBytes = report.outputSize
             job.state = .done
             completedCount += 1
+            convertedSources.insert(input.standardizedFileURL.path)
             activity.end(success: true)
             if defaults.bool(forKey: SettingsKey.deleteSource) {
                 try? FileManager.default.removeItem(at: input)
